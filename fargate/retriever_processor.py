@@ -3,6 +3,7 @@ from embedding.embedding_registry import embedding_registry
 from embedding.guardrails.guardrails_embedding import GuardrailsEmbedding
 from fargate.base_task_processor import BaseFargateTaskProcessor
 from guardrails.guardrails import BedrockGuardrail
+from inferencer.guardrails.guardrails_inferencer import GuardRailsInferencer
 from logger.global_logger import get_logger
 from config.config import Config
 from config.env_config_provider import EnvConfigProvider
@@ -129,7 +130,6 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     exp_config_data.get("enable_context_guardrails", False)
                 )
             
-            # TODO: is different model class required for retrieval model?
             inferencer = BedrockInferencer(
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
@@ -138,12 +138,16 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 exp_config_data.get("n_shot_prompt_guide_obj")
             )
 
+            if exp_config_data.get("enable_guardrails", False) and exp_config_data.get("enable_response_guardrails", False):
+                inferencer = GuardRailsInferencer(inferencer, base_guardrails)
+
             retriever = Retriever(json_reader, embedding, open_search_client, inferencer)
+            hierarchical = exp_config_data.get("chunking_strategy") == 'hierarchical'
             retriever.retrieve(
                 gt_data_path, 
                 "What is the patient's name?",
                 exp_config_data.get("knn_num"), 
-                # exp_config_data.get("chunking_strategy") == 'hierarchical' ? True : False
+                hierarchical
             )
             
             output = {"status": "success", "message": "Retriever completed successfully."}
