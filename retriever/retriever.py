@@ -26,8 +26,8 @@ class Retriever:
             question_chunk = question.get_chunk()
             response = self.vector_storage.search(question_chunk, knn, hierarchical)
             if response.status:
-                metadata, answer = self.inferencer.generate_text(question.question, response.result.to_json())
+                metadata, answer = self.inferencer.generate_text(question.question, response.to_json()['result'])
             else:
-                answer = response.text
+                answer = response.metadata['guardrail_output']
             
             
