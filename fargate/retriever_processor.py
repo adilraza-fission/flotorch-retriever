@@ -8,6 +8,7 @@ from logger.global_logger import get_logger
 from config.config import Config
 from config.env_config_provider import EnvConfigProvider
 from reader.json_reader import JSONReader
+from rerank.rerank import BedrockReranker
 from retriever.retriever import Retriever
 from storage.db.vector.guardrails_vector_storage import GuardRailsVectorStorage
 from storage.db.vector.open_search import OpenSearchClient
@@ -129,6 +130,11 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     exp_config_data.get("enable_prompt_guardrails", False),
                     exp_config_data.get("enable_context_guardrails", False)
                 )
+
+
+            reranker = BedrockReranker(exp_config_data.get("aws_region"), exp_config_data.get("rerank_model_id")) \
+                if exp_config_data.get("rerank_model_id").lower() != "none" \
+                else None
             
             inferencer = BedrockInferencer(
                 exp_config_data.get("retrieval_model"), 
@@ -141,7 +147,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             if exp_config_data.get("enable_guardrails", False) and exp_config_data.get("enable_response_guardrails", False):
                 inferencer = GuardRailsInferencer(inferencer, base_guardrails)
 
-            retriever = Retriever(json_reader, embedding, open_search_client, inferencer)
+            retriever = Retriever(json_reader, embedding, open_search_client, inferencer, reranker)
             hierarchical = exp_config_data.get("chunking_strategy") == 'hierarchical'
             retriever.retrieve(
                 gt_data_path, 
