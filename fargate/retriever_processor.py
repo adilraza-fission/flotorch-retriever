@@ -4,6 +4,7 @@ from embedding.guardrails.guardrails_embedding import GuardrailsEmbedding
 from fargate.base_task_processor import BaseFargateTaskProcessor
 from guardrails.guardrails import BedrockGuardrail
 from inferencer.guardrails.guardrails_inferencer import GuardRailsInferencer
+from inferencer.inferencer_provider_factory import InferencerProviderFactory
 from logger.global_logger import get_logger
 from config.config import Config
 from config.env_config_provider import EnvConfigProvider
@@ -131,19 +132,19 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     exp_config_data.get("enable_context_guardrails", False)
                 )
 
-
             reranker = BedrockReranker(exp_config_data.get("aws_region"), exp_config_data.get("rerank_model_id")) \
                 if exp_config_data.get("rerank_model_id").lower() != "none" \
                 else None
             
-            inferencer = BedrockInferencer(
+            inferencer = InferencerProviderFactory(
+                exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
                 int(exp_config_data.get("n_shot_prompts")), 
                 float(exp_config_data.get("temp_retrieval_llm")), 
                 exp_config_data.get("n_shot_prompt_guide_obj")
             )
-
+            
             if exp_config_data.get("enable_guardrails", False) and exp_config_data.get("enable_response_guardrails", False):
                 inferencer = GuardRailsInferencer(inferencer, base_guardrails)
 
