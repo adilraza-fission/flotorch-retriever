@@ -117,6 +117,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             
             
             vector_storage = VectorStorageFactory.create_vector_storage(
+                knowledge_base=exp_config_data.get("knowledge_base", False),
                 use_bedrock_kb=exp_config_data.get("bedrock_knowledge_base", False),
                 embedding=embedding,
                 opensearch_host=config.get_opensearch_host(),
