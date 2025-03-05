@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:  # Enables manual triggering
+    inputs:
+      table_suffix:
+        description: 'Table suffix for the ECR repository name'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -15,9 +20,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         
-      - name: Get table suffix from stack.json
+      - name: Get table suffix from stack.json or input
         id: stack-config
-        run: echo "table_suffix=$(jq -r '.table_suffix' stack.json)" >> $GITHUB_OUTPUT
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.table_suffix }}" != "" ]]; then
+            # Use manually provided table_suffix for workflow_dispatch
+            echo "table_suffix=${{ github.event.inputs.table_suffix }}" >> $GITHUB_OUTPUT
+            echo "Using manually provided table_suffix: ${{ github.event.inputs.table_suffix }}"
+          else
+            # Use table_suffix from stack.json for push or when input is not provided
+            SUFFIX=$(jq -r '.table_suffix' stack.json)
+            echo "table_suffix=$SUFFIX" >> $GITHUB_OUTPUT
+            echo "Using table_suffix from stack.json: $SUFFIX"
+          fi
         
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
