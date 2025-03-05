@@ -145,6 +145,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
+                config.get_sagemaker_arn_role(),
                 int(exp_config_data.get("n_shot_prompts")), 
                 float(exp_config_data.get("temp_retrieval_llm")), 
                 exp_config_data.get("n_shot_prompt_guide_obj")
