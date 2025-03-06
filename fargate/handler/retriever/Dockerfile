@@ -11,7 +11,7 @@ RUN pip install .
 
 # Copy the necessary files and directories
 COPY fargate/ fargate/
-COPY fargate/handler/retriever/ retriever/
+COPY retriever/ retriever/
 COPY fargate/handler/retriever/fargate_retriever_handler.py .
 
 # Set environment variables
