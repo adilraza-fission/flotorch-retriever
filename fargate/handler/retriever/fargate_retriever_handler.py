@@ -34,8 +34,7 @@ def main():
     Main entry point for the Fargate retriever handler.
     """
     try:
-        # task_token, input_data = get_environment_data()
-        task_token, input_data = None, None
+        task_token, input_data = get_environment_data()
 
         # Initialize and process the RetrieverProcessor
         fargate_processor = RetrieverProcessor(task_token=task_token, input_data=input_data)

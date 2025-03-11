@@ -48,11 +48,14 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             gt_data_path = storage.get_path(gt_data)
             json_reader = JSONReader(storage)
 
-            embedding_class = embedding_registry.get_model(exp_config_data.get("embedding_model"))
-            embedding = embedding_class(
-                exp_config_data.get("embedding_model"), 
-                exp_config_data.get("aws_region"), 
-                int(exp_config_data.get("vector_dimension")))
+            if exp_config_data.get("knowledge_base", False) and not exp_config_data.get("bedrock_knowledge_base", False):
+                embedding_class = embedding_registry.get_model(exp_config_data.get("embedding_model"))
+                embedding = embedding_class(
+                    exp_config_data.get("embedding_model"), 
+                    exp_config_data.get("aws_region"), 
+                    int(exp_config_data.get("vector_dimension")))
+            else:
+                embedding = None
             
             if exp_config_data.get("enable_guardrails", False):
                 base_guardrails = BedrockGuardrail(exp_config_data.get("guardrail_id", ""), exp_config_data.get("guardrail_version", 0))
@@ -121,8 +124,10 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     item.guardrails_context_assessment,
                     item.guardrails_output_assessment,
                     exp_config_data.get("guardrail_id", ""),
+                    item.guardrails_block_level,
                     item.guardrails_blocked
-                )
+                )                
+
                 batch_items.append(metrics)
                 if len(batch_items) >= 25:
                     write_batch_to_metrics_dynamodb(batch_items)
@@ -154,7 +159,8 @@ def create_metrics(
     guardrail_context_assessment: Optional[Union[List[Dict], Dict]] = None,
     guardrail_output_assessment: Optional[Union[List[Dict], Dict]] = None,
     guardrail_id: Optional[str] = None,
-    guardrail_blocked: Optional[str] = None
+    guardrails_block_level: Optional[str] = '',
+    guardrails_blocked: Optional[bool] = False
 ):
     metrics = {
         "id": str(uuid.uuid4()),
@@ -163,16 +169,21 @@ def create_metrics(
         "experiment_id": experiment_id,
         "question": question,
         "gt_answer": gt_answer,
-        "answer": answer,
+        "generated_answer": answer,
         "reference_contexts": reference_contexts,
         "query_metadata": query_metadata,
-        "answer_metadata": answer_metadata,
-        "guardrail_input_assessment": guardrail_input_assessment,
-        "guardrail_context_assessment": guardrail_context_assessment,
-        "guardrail_output_assessment": guardrail_output_assessment,
-        "guardrail_id": guardrail_id,
-        "guardrail_blocked": guardrail_blocked
+        "answer_metadata": answer_metadata
     }
+
+    if guardrails_blocked:
+        metrics.update({
+            "guardrail_input_assessment": guardrail_input_assessment,
+            "guardrail_context_assessment": guardrail_context_assessment,
+            "guardrail_output_assessment": guardrail_output_assessment,
+            "guardrail_id": guardrail_id,
+            "guardrail_blocked": guardrails_block_level
+        })
+
     return metrics
 
 
