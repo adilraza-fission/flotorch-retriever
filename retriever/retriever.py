@@ -24,6 +24,7 @@ class RetrieverItem:
     guardrails_context_assessment: List = field(default_factory=None)
     guardrails_input_assessment: List = field(default_factory=None)
     guardrails_blocked: bool = field(default_factory=False)
+    guardrails_block_level: str = field(default_factory="")
     answer_metadata: Dict[str, Any] = field(default_factory={})
     query_metadata: Dict[str, Any] = field(default_factory={})
     reference_contexts: List[str] = field(default_factory=[])
@@ -37,6 +38,7 @@ class RetrieverItem:
             "guardrails_context_assessment": self.guardrails_context_assessment,
             "guardrails_input_assessment": self.guardrails_input_assessment,
             "guardrails_blocked": self.guardrails_blocked,
+            "guardrails_block_level": self.guardrails_block_level,
             "answer_metadata": self.answer_metadata,
             "query_metadata": self.query_metadata,
             "reference_contexts": self.reference_contexts,
@@ -64,7 +66,10 @@ class Retriever:
                     vector_response = self.reranker.rerank_documents(question_chunk.data, vector_response)
                 metadata, answer = self.inferencer.generate_text(question.question, vector_response)
                 guardrail_blocked = metadata['guardrail_blocked'] if 'guardrail_blocked' in metadata else False
-                answer_metadata = metadata
+                if guardrail_blocked:
+                    answer_metadata = {}
+                else:
+                    answer_metadata = metadata
             else:
                 answer = response.metadata['guardrail_output']
                 metadata = {}
@@ -78,6 +83,7 @@ class Retriever:
                 guardrails_context_assessment=response.metadata['guardrail_context_assessment'] if 'guardrail_context_assessment' in response.metadata else None,
                 guardrails_input_assessment=response.metadata['guardrail_input_assessment'] if 'guardrail_input_assessment' in response.metadata else None,
                 guardrails_blocked=guardrail_blocked,
+                guardrails_block_level=response.metadata['block_level'] if 'block_level' in response.metadata else "",
                 answer_metadata=answer_metadata,
                 reference_contexts=[res['text'] for res in vector_response] if vector_response else [],
                 gt_answer=question.answer,
