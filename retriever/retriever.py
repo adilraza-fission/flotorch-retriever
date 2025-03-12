@@ -1,12 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
-from reader.json_reader import JSONReader
-from embedding.embedding import BaseEmbedding
-from chunking.chunking import Chunk
-from rerank.rerank import BedrockReranker
-from storage.db.vector.vector_storage import VectorStorage
+from flotorch_core.reader.json_reader import JSONReader
+from flotorch_core.embedding.embedding import BaseEmbedding
+from flotorch_core.chunking.chunking import Chunk
+from flotorch_core.rerank.rerank import BedrockReranker
+from flotorch_core.storage.db.vector.vector_storage import VectorStorage
 from pydantic import BaseModel
-from inferencer.inferencer import BaseInferencer
+from flotorch_core.inferencer.inferencer import BaseInferencer
 
 class Question(BaseModel):
     question: str
@@ -67,6 +67,7 @@ class Retriever:
                 metadata, answer = self.inferencer.generate_text(question.question, vector_response)
                 guardrail_blocked = metadata['guardrail_blocked'] if 'guardrail_blocked' in metadata else False
                 if guardrail_blocked:
+
                     answer_metadata = {}
                 else:
                     answer_metadata = metadata

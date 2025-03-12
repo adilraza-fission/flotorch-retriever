@@ -1,7 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 from botocore.exceptions import ClientError
-from logger.global_logger import get_logger
+from flotorch_core.logger.global_logger import get_logger
 import boto3
 
 logger = get_logger()

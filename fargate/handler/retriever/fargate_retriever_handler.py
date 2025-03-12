@@ -1,9 +1,9 @@
 import os
 import json
 from fargate.retriever_processor import RetrieverProcessor
-from logger.global_logger import get_logger
-from config.config import Config
-from config.env_config_provider import EnvConfigProvider
+from flotorch_core.logger.global_logger import get_logger
+from flotorch_core.config.config import Config
+from flotorch_core.config.env_config_provider import EnvConfigProvider
 
 logger = get_logger()
 
