@@ -2,29 +2,29 @@ from datetime import datetime
 import json
 from typing import Dict, List, Optional, Union
 import uuid
-from embedding.embedding_registry import embedding_registry
-from embedding.guardrails.guardrails_embedding import GuardrailsEmbedding
+from flotorch_core.embedding.embedding_registry import embedding_registry
+from flotorch_core.embedding.guardrails.guardrails_embedding import GuardrailsEmbedding
 from fargate.base_task_processor import BaseFargateTaskProcessor
-from guardrails.guardrails import BedrockGuardrail
-from inferencer.guardrails.guardrails_inferencer import GuardRailsInferencer
-from inferencer.inferencer_provider_factory import InferencerProviderFactory
-from logger.global_logger import get_logger
-from config.config import Config
-from config.env_config_provider import EnvConfigProvider
-from reader.json_reader import JSONReader
-from rerank.rerank import BedrockReranker
+from flotorch_core.guardrails.guardrails import BedrockGuardrail
+from flotorch_core.inferencer.guardrails.guardrails_inferencer import GuardRailsInferencer
+from flotorch_core.inferencer.inferencer_provider_factory import InferencerProviderFactory
+from flotorch_core.logger.global_logger import get_logger
+from flotorch_core.config.config import Config
+from flotorch_core.config.env_config_provider import EnvConfigProvider
+from flotorch_core.reader.json_reader import JSONReader
+from flotorch_core.rerank.rerank import BedrockReranker
 from retriever.retriever import Retriever
-from storage.db.dynamodb import DynamoDB
-from storage.db.vector.guardrails_vector_storage import GuardRailsVectorStorage
-from storage.db.vector.open_search import OpenSearchClient
-from inferencer.bedrock_inferencer import BedrockInferencer
-from storage.db.vector.vector_storage_factory import VectorStorageFactory
-from storage.storage_provider_factory import StorageProviderFactory
+from flotorch_core.storage.db.dynamodb import DynamoDB
+from flotorch_core.storage.db.vector.guardrails_vector_storage import GuardRailsVectorStorage
+from flotorch_core.storage.db.vector.open_search import OpenSearchClient
+from flotorch_core.inferencer.bedrock_inferencer import BedrockInferencer
+from flotorch_core.storage.db.vector.vector_storage_factory import VectorStorageFactory
+from flotorch_core.storage.storage_provider_factory import StorageProviderFactory
 
-from embedding.titanv2_embedding import TitanV2Embedding
-from embedding.titanv1_embedding import TitanV1Embedding
-from embedding.cohere_embedding import CohereEmbedding
-from embedding.bge_large_embedding import BGELargeEmbedding, BGEM3Embedding, GTEQwen2Embedding
+from flotorch_core.embedding.titanv2_embedding import TitanV2Embedding
+from flotorch_core.embedding.titanv1_embedding import TitanV1Embedding
+from flotorch_core.embedding.cohere_embedding import CohereEmbedding
+from flotorch_core.embedding.bge_large_embedding import BGELargeEmbedding, BGEM3Embedding, GTEQwen2Embedding
 
 
 logger = get_logger()
@@ -58,7 +58,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 embedding = None
             
             if exp_config_data.get("enable_guardrails", False):
-                base_guardrails = BedrockGuardrail(exp_config_data.get("guardrail_id", ""), exp_config_data.get("guardrail_version", 0))
+                base_guardrails = BedrockGuardrail(exp_config_data.get("guardrail_id", ""), exp_config_data.get("guardrail_version", 0), exp_config_data.get("aws_region", "us-east-1"))
             
             
             vector_storage = VectorStorageFactory.create_vector_storage(
