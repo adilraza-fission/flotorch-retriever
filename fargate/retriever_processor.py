@@ -87,12 +87,15 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 else None
             
             inferencer = InferencerProviderFactory.create_inferencer_provider(
+                exp_config_data.get("gateway_enabled", False),
+                exp_config_data.get("base_url", ""),
+                exp_config_data.get("api_key", ""),
                 exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
                 config.get_sagemaker_arn_role(),
-                int(exp_config_data.get("n_shot_prompts")), 
-                float(exp_config_data.get("temp_retrieval_llm")), 
+                int(exp_config_data.get("n_shot_prompts", 0)), 
+                float(exp_config_data.get("temp_retrieval_llm", 0)), 
                 exp_config_data.get("n_shot_prompt_guide_obj")
             )
             
