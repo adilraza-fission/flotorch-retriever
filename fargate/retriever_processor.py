@@ -88,8 +88,8 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             
             inferencer = InferencerProviderFactory.create_inferencer_provider(
                 exp_config_data.get("gateway_enabled", False),
-                exp_config_data.get("base_url", ""),
-                exp_config_data.get("api_key", ""),
+                exp_config_data.get("gateway_url", ""),
+                exp_config_data.get("gateway_api_key", ""),
                 exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
