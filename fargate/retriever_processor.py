@@ -54,8 +54,10 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     exp_config_data.get("embedding_model"), 
                     exp_config_data.get("aws_region"), 
                     int(exp_config_data.get("vector_dimension")))
+                is_opensearch_required = True
             else:
                 embedding = None
+                is_opensearch_required = False
             
             if exp_config_data.get("enable_guardrails", False):
                 base_guardrails = BedrockGuardrail(exp_config_data.get("guardrail_id", ""), exp_config_data.get("guardrail_version", 0), exp_config_data.get("aws_region", "us-east-1"))
@@ -65,10 +67,10 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 knowledge_base=exp_config_data.get("knowledge_base", False),
                 use_bedrock_kb=exp_config_data.get("bedrock_knowledge_base", False),
                 embedding=embedding,
-                opensearch_host=config.get_opensearch_host(),
-                opensearch_port=config.get_opensearch_port(),
-                opensearch_username=config.get_opensearch_username(),
-                opensearch_password=config.get_opensearch_password(),
+                opensearch_host=config.get_opensearch_host() if is_opensearch_required else None,
+                opensearch_port=config.get_opensearch_port() if is_opensearch_required else None,
+                opensearch_username=config.get_opensearch_username() if is_opensearch_required else None,
+                opensearch_password=config.get_opensearch_password() if is_opensearch_required else None,
                 index_id=exp_config_data.get("index_id"),
                 knowledge_base_id=exp_config_data.get("kb_data"),
                 aws_region=exp_config_data.get("aws_region")
@@ -88,7 +90,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             
             inferencer = InferencerProviderFactory.create_inferencer_provider(
                 exp_config_data.get("gateway_enabled", False),
-                exp_config_data.get("gateway_url", ""),
+                f'{exp_config_data.get("gateway_url", "")}/api/openai/v1',
                 exp_config_data.get("gateway_api_key", ""),
                 exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
