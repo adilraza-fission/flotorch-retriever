@@ -41,6 +41,9 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
         try:
             exp_config_data = self.input_data
 
+            n_shot_prompt_guide_obj = get_n_shot_prompt_guide_obj(exp_config_data.get("execution_id"))
+            exp_config_data["n_shot_prompt_guide_obj"] = n_shot_prompt_guide_obj
+
             logger.info(f"Into retriever processor. Processing event: {json.dumps(exp_config_data)}")
 
             gt_data = exp_config_data.get("gt_data")
@@ -148,7 +151,17 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             logger.error(f"Error during retriever process: {str(e)}")
             self.send_task_failure(str(e))
 
-
+# get n shot prompt guide object
+def get_n_shot_prompt_guide_obj(execution_id) -> Optional[Dict]:
+    """
+    Retrieves the n-shot prompt guide object from the dynamo db.
+    """
+    db = DynamoDB(config.get_execution_table_name())
+    data = db.read({"id": execution_id})
+    if data:
+        n_shot_prompt_guide_obj = data.get("config", {}).get("n_shot_prompt_guide", None)
+        return n_shot_prompt_guide_obj
+    return None
 
 # metrics: to be removed later
 def create_metrics(
