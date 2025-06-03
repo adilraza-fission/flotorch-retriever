@@ -296,9 +296,9 @@ def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_d
         {
             "execution_id": item_metrics.get("execution_id", ""),
             "experiment_id": item_metrics.get("experiment_id", ""),
-            "input": {"type": "question", "content": item_metrics.get("question", "")},
-            "expected": {"type": "answer", "content": item_metrics.get("gt_answer", "")},
-            "actual": {"type": "answer", "content": item_metrics.get("generated_answer", "")},
+            "input": [{"type": "question", "content": item_metrics.get("question", "")}],
+            "expected": [{"type": "answer", "content": item_metrics.get("gt_answer", "")}],
+            "actual": [{"type": "answer", "content": item_metrics.get("generated_answer", "")}],
             "metadata": [
                 {"type": key, "content": item_metrics[key]}
                 for key in required_metadata_keys
