@@ -1,6 +1,6 @@
 from datetime import datetime
 import json
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 import uuid
 from flotorch_core.embedding.embedding_registry import embedding_registry
 from flotorch_core.embedding.guardrails.guardrails_embedding import GuardrailsEmbedding
@@ -15,6 +15,7 @@ from flotorch_core.reader.json_reader import JSONReader
 from flotorch_core.rerank.rerank import BedrockReranker
 from retriever.retriever import Retriever
 from flotorch_core.storage.db.dynamodb import DynamoDB
+from flotorch_core.storage.db.postgresdb import PostgresDB
 from flotorch_core.storage.db.vector.guardrails_vector_storage import GuardRailsVectorStorage
 from flotorch_core.storage.db.vector.open_search import OpenSearchClient
 from flotorch_core.inferencer.bedrock_inferencer import BedrockInferencer
@@ -32,6 +33,10 @@ logger = get_logger()
 env_config_provider = EnvConfigProvider()
 config = Config(env_config_provider)
 
+def read_json_data_by_url(storage_provider, path:str, headers: dict = None) -> dict:
+    data = "".join(chunk.decode("utf-8") for chunk in storage_provider.read(path, headers))
+    return json.loads(data)
+
 class RetrieverProcessor(BaseFargateTaskProcessor):
     """
     Processor for retriever tasks in Fargate.
@@ -40,12 +45,23 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
     def process(self):
         logger.info("Starting retriever process.")
         try:
-            exp_config_data = self.input_data
-
-            n_shot_prompt_guide_obj = get_n_shot_prompt_guide_obj(exp_config_data.get("execution_id"))
-            exp_config_data["n_shot_prompt_guide_obj"] = n_shot_prompt_guide_obj
-
-            logger.info(f"Into retriever processor. Processing event: {json.dumps(exp_config_data)}")
+            execution_id = self.execution_id
+            experiment_id = self.experiment_id
+            if self.config_data:
+                config_info = self.config_data.get("console", {})
+                config_base_url = config_info.get("url", "").rstrip("/")
+                config_routes = config_info.get("endpoints", {})
+                config_headers = config_info.get("headers", {})
+                get_config_url = config_base_url + config_routes.get("experiment", "")
+                storage_provider = StorageProviderFactory.create_storage_provider(get_config_url)
+                get_exp_config_data = read_json_data_by_url(storage_provider, get_config_url, config_headers)
+                exp_config_data = get_exp_config_data.get("config", {})
+            else:
+                exp_config_data = get_experiment_config(execution_id, experiment_id)
+                print(f"exp_config_data: {exp_config_data}")
+            if not exp_config_data:
+                raise ValueError(
+                    f"Experiment configuration not found for execution_id: {execution_id} and experiment_id: {experiment_id}")
 
             gt_data = exp_config_data.get("gt_data")
             storage = StorageProviderFactory.create_storage_provider(gt_data)
@@ -141,30 +157,39 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
 
                 batch_items.append(metrics)
                 if len(batch_items) >= 25:
-                    write_batch_to_metrics_dynamodb(batch_items)
+                    write_batch_to_metrics_db(batch_items, self.config_data)
                     batch_items = []
 
             if len(batch_items) > 0:
-                write_batch_to_metrics_dynamodb(batch_items)
+                write_batch_to_metrics_db(batch_items, self.config_data)
 
-            experiment_id = exp_config_data.get("experiment_id")
-            update_tokens(experiment_id, total_input_tokens,total_output_tokens)
             output = {"status": "success", "message": "Retriever completed successfully."}
             self.send_task_success(output)
         except Exception as e:
             logger.error(f"Error during retriever process: {str(e)}")
             self.send_task_failure(str(e))
 
-# get n shot prompt guide object
-def get_n_shot_prompt_guide_obj(execution_id) -> Optional[Dict]:
+
+def get_experiment_config(execution_id, experiment_id) -> Dict:
     """
-    Retrieves the n-shot prompt guide object from the dynamo db.
+    Retrieves the experiment configuration from the dynamo db.
     """
-    db = DynamoDB(config.get_execution_table_name())
-    data = db.read({"id": execution_id})
+    db_type = config.get_db_type()
+    if db_type == "POSTGRESDB":
+        db = PostgresDB(
+            dbname=config.get_postgress_db(),
+            user=config.get_postgress_user(),
+            password=config.get_postgress_password(),
+            host=config.get_postgress_host(),
+            port=config.get_postgress_port()
+        )
+    else:
+        db = DynamoDB(config.get_experiment_table_name())
+
+    data = db.read({"id": experiment_id, "execution_id": execution_id})
     if data:
-        n_shot_prompt_guide_obj = data.get("config", {}).get("n_shot_prompt_guide", None)
-        return n_shot_prompt_guide_obj
+        experiment_config = data[0].get("config", {}) if isinstance(data, list) else data.get("config", {})
+        return experiment_config
     return None
 
 # metrics: to be removed later
@@ -208,20 +233,83 @@ def create_metrics(
 
     return metrics
 
-def update_tokens(experiment_id, total_input_tokens, total_output_tokens):
-    experiment_db = DynamoDB(config.get_experiment_table_name())
-    token_fields = {
-        "retrieval_input_tokens": total_input_tokens,
-        "retrieval_output_tokens": total_output_tokens
-    }
-    if experiment_db.update({"id": experiment_id}, token_fields):
-        logger.info(f"Updated tokens for experiment {experiment_id} successfully.")
+
+def write_batch_to_metrics_db(batch_items: List[Dict], config_data) -> None:
+    """Write a batch of items to the appropriate database."""
+    if config_data:
+        write_batch_metrics_through_api(batch_items, config_data)
     else:
-        logger.error(f"Failed to update tokens for experiment {experiment_id}.")
-    
-    
+        db_type = config.get_db_type()
+        if db_type == "POSTGRESDB":
+            write_batch_to_metrics_postgres(batch_items)
+        elif db_type == "DYNAMODB":
+            write_batch_to_metrics_dynamodb(batch_items)
+        else:
+            logger.error(f"Unsupported database type: {db_type}")
+            raise ValueError(f"Unsupported database type: {db_type}")
+
+
 def write_batch_to_metrics_dynamodb(batch_items: List[Dict]) -> None:
     """Write a batch of items to DynamoDB."""
     logger.info(f"Writing batch of {len(batch_items)} items to DynamoDB")
     db = DynamoDB(config.get_experiment_question_metrics_table())
     db.bulk_write(batch_items)
+
+
+def write_batch_to_metrics_postgres(batch_items: List[Dict]) -> None:
+    """Write a batch of items to PostgreSQL."""
+    logger.info(f"Writing batch of {len(batch_items)} items to PostgreSQL")
+
+    db = PostgresDB(
+        dbname=config.get_postgress_db(),
+        user=config.get_postgress_user(),
+        password=config.get_postgress_password(),
+        host=config.get_postgress_host(),
+        port=config.get_postgress_port()
+    )
+
+    db.bulk_write(batch_items, config.get_experiment_question_metrics_table())
+
+    db.close()
+
+def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_data: dict) -> None:
+    """
+    Transforms a list of metrics dictionaries into the required API payload format.
+
+    Args:
+        write_metrics_api:
+        metrics_list (List[Dict[str, Any]]): A list of dictionaries, where each dictionary
+                                              represents a set of metrics for an item.
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries formatted as required by the API.
+
+    """
+    required_metadata_keys = (
+        "query_metadata",
+        "answer_metadata",
+        "guardrail_input_assessment",
+        "guardrail_context_assessment",
+        "guardrail_output_assessment",
+    )
+    transformed_payload_list = [
+        {
+            "execution_id": item_metrics.get("execution_id", ""),
+            "experiment_id": item_metrics.get("experiment_id", ""),
+            "input": {"type": "question", "content": item_metrics.get("question", "")},
+            "expected": {"type": "answer", "content": item_metrics.get("gt_answer", "")},
+            "actual": {"type": "answer", "content": item_metrics.get("generated_answer", "")},
+            "metadata": [
+                {"type": key, "content": item_metrics[key]}
+                for key in required_metadata_keys
+                if key in item_metrics
+            ],
+        }
+        for item_metrics in metrics_list
+    ]
+    write_metrics_api = config_data.get("console", {}).get("url", "").rstrip("/") + \
+                        config_data.get("console", {}).get("endpoints", {}).get("results", "")
+    headers_data = config_data.get("console", {}).get("headers", {})
+    logger.info(f"Writing batch of {len(metrics_list)} items to API: {write_metrics_api}")
+    url_storage = StorageProviderFactory.create_storage_provider(write_metrics_api)
+    url_storage.write(write_metrics_api, transformed_payload_list, headers_data)
