@@ -71,8 +71,8 @@ class Retriever:
                     answer_metadata = {}
                 else:
                     answer_metadata = metadata
-                    total_input_tokens += metadata['inputTokens']
-                    total_output_tokens += metadata['outputTokens']
+                    total_input_tokens += int(metadata['inputTokens'])
+                    total_output_tokens += int(metadata['outputTokens'])
             else:
                 answer = response.metadata['guardrail_output']
                 metadata = {}

@@ -28,14 +28,12 @@ from flotorch_core.embedding.titanv1_embedding import TitanV1Embedding
 from flotorch_core.embedding.cohere_embedding import CohereEmbedding
 from flotorch_core.embedding.bge_large_embedding import BGELargeEmbedding, BGEM3Embedding, GTEQwen2Embedding
 
+import requests
+
 
 logger = get_logger()
 env_config_provider = EnvConfigProvider()
 config = Config(env_config_provider)
-
-def read_json_data_by_url(storage_provider, path:str, headers: dict = None) -> dict:
-    data = "".join(chunk.decode("utf-8") for chunk in storage_provider.read(path, headers))
-    return json.loads(data)
 
 class RetrieverProcessor(BaseFargateTaskProcessor):
     """
@@ -53,12 +51,23 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 config_routes = config_info.get("endpoints", {})
                 config_headers = config_info.get("headers", {})
                 get_config_url = config_base_url + config_routes.get("experiment", "")
-                storage_provider = StorageProviderFactory.create_storage_provider(get_config_url)
-                get_exp_config_data = read_json_data_by_url(storage_provider, get_config_url, config_headers)
-                exp_config_data = get_exp_config_data.get("config", {})
+                config_data = fetch_experiment_config_from_url(
+                    get_config_url,
+                    execution_id,
+                    experiment_id,
+                    config_headers
+                )
+
+                exp_config_data = config_data.get("config", {})
+                exp_config_data["gateway_enabled"] = True
+                exp_config_data["gateway_url"] = config_data.get("gateway", {}).get("url", "")
+                auth_header = config_data.get("gateway", {}).get("headers", {}).get("Authorization", "")
+                token = auth_header.removeprefix("Bearer ").strip()
+                exp_config_data["gateway_api_key"] = token
             else:
                 exp_config_data = get_experiment_config(execution_id, experiment_id)
-                print(f"exp_config_data: {exp_config_data}")
+
+            print(f"exp_config_data: {exp_config_data}")
             if not exp_config_data:
                 raise ValueError(
                     f"Experiment configuration not found for execution_id: {execution_id} and experiment_id: {experiment_id}")
@@ -105,7 +114,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 )
 
             reranker = BedrockReranker(exp_config_data.get("aws_region"), exp_config_data.get("rerank_model_id")) \
-                if exp_config_data.get("rerank_model_id").lower() != "none" \
+                if exp_config_data.get("rerank_model_id", "none").lower() != "none" \
                 else None
             if reranker:
                 vector_storage = RerankedVectorStorage(vector_storage, reranker)
@@ -117,7 +126,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 exp_config_data.get("retrieval_service"),
                 exp_config_data.get("retrieval_model"), 
                 exp_config_data.get("aws_region"), 
-                config.get_sagemaker_arn_role(),
+                config.get_sagemaker_arn_role(default=""),
                 int(exp_config_data.get("n_shot_prompts", 0)),
                 float(exp_config_data.get("temp_retrieval_llm", 0)), 
                 exp_config_data.get("n_shot_prompt_guide_obj")
@@ -157,17 +166,35 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
 
                 batch_items.append(metrics)
                 if len(batch_items) >= 25:
-                    write_batch_to_metrics_db(batch_items, self.config_data)
+                    write_batch_to_metrics_db(batch_items, self.config_data, execution_id, experiment_id)
                     batch_items = []
 
             if len(batch_items) > 0:
-                write_batch_to_metrics_db(batch_items, self.config_data)
+                write_batch_to_metrics_db(batch_items, self.config_data, execution_id, experiment_id)
 
             output = {"status": "success", "message": "Retriever completed successfully."}
             self.send_task_success(output)
         except Exception as e:
             logger.error(f"Error during retriever process: {str(e)}")
             self.send_task_failure(str(e))
+
+
+
+def fetch_experiment_config_from_url(
+    url: str,
+    execution_id: str,
+    experiment_id: str,
+    headers: dict
+) -> dict:
+    params = {
+        "projectUid": execution_id,
+        "experimentUid": experiment_id,
+    }
+
+    response = requests.get(url, headers=headers, params=params)
+    response.raise_for_status()  # Raises HTTPError for bad responses
+    return response.json()
+
 
 
 def get_experiment_config(execution_id, experiment_id) -> Dict:
@@ -234,10 +261,10 @@ def create_metrics(
     return metrics
 
 
-def write_batch_to_metrics_db(batch_items: List[Dict], config_data) -> None:
+def write_batch_to_metrics_db(batch_items: List[Dict], config_data, execution_id, experiment_id) -> None:
     """Write a batch of items to the appropriate database."""
     if config_data:
-        write_batch_metrics_through_api(batch_items, config_data)
+        write_batch_metrics_through_api(batch_items, config_data, execution_id, experiment_id)
     else:
         db_type = config.get_db_type()
         if db_type == "POSTGRESDB":
@@ -272,7 +299,7 @@ def write_batch_to_metrics_postgres(batch_items: List[Dict]) -> None:
 
     db.close()
 
-def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_data: dict) -> None:
+def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_data: dict, project_uid, experiment_uid) -> None:
     """
     Transforms a list of metrics dictionaries into the required API payload format.
 
@@ -294,8 +321,6 @@ def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_d
     )
     transformed_payload_list = [
         {
-            "execution_id": item_metrics.get("execution_id", ""),
-            "experiment_id": item_metrics.get("experiment_id", ""),
             "input": [{"type": "question", "content": item_metrics.get("question", "")}],
             "expected": [{"type": "answer", "content": item_metrics.get("gt_answer", "")}],
             "actual": [{"type": "answer", "content": item_metrics.get("generated_answer", "")}],
@@ -307,8 +332,11 @@ def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_d
         }
         for item_metrics in metrics_list
     ]
-    write_metrics_api = config_data.get("console", {}).get("url", "").rstrip("/") + \
-                        config_data.get("console", {}).get("endpoints", {}).get("results", "")
+    if not project_uid or not experiment_uid:
+        logger.error("Missing projectUid or experimentUid in the first metrics item.")
+    base_url = config_data.get("console", {}).get("url", "").rstrip("/")
+    endpoint_path = config_data.get("console", {}).get("endpoints", {}).get("results", "")
+    write_metrics_api = f"{base_url}{endpoint_path}?projectUid={project_uid}&experimentUid={experiment_uid}"
     headers_data = config_data.get("console", {}).get("headers", {})
     logger.info(f"Writing batch of {len(metrics_list)} items to API: {write_metrics_api}")
     url_storage = StorageProviderFactory.create_storage_provider(write_metrics_api)
