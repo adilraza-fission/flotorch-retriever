@@ -147,7 +147,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 config.get_sagemaker_arn_role(default=""),
                 int(exp_config_data.get("n_shot_prompts", 0)),
                 float(exp_config_data.get("temp_retrieval_llm", 0)), 
-                exp_config_data.get("n_shot_prompt_guide_obj"),
+                exp_config_data.get("n_shot_prompt_guide"),
                 headers=exp_config_data.get("gateway_headers", {})
             )
             
