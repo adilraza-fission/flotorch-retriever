@@ -60,10 +60,19 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
 
                 exp_config_data = config_data.get("config", {})
                 exp_config_data["gateway_enabled"] = True
-                exp_config_data["gateway_url"] = config_data.get("gateway", {}).get("url", "")
-                auth_header = config_data.get("gateway", {}).get("headers", {}).get("Authorization", "")
-                token = auth_header.removeprefix("Bearer ").strip()
-                exp_config_data["gateway_api_key"] = token
+                gateway_data = config_data.get("gateway", {})
+                exp_config_data["gateway_url"] = gateway_data.get("url", "")
+                gateway_headers = gateway_data.get("headers", {})
+                auth_header = gateway_headers.get("Authorization", "")
+                exp_config_data["gateway_api_key"] = auth_header.removeprefix("Bearer ").strip()
+                other_headers = {
+                    k: v for k, v in gateway_headers.items() if k.lower() != "authorization"
+                }
+                exp_config_data["gateway_headers"] = other_headers
+
+                region = self.config_data.get("region")
+                if region:
+                    exp_config_data["aws_region"] = region
             else:
                 exp_config_data = get_experiment_config(execution_id, experiment_id)
 
@@ -91,7 +100,16 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
             if exp_config_data.get("enable_guardrails", False):
                 base_guardrails = BedrockGuardrail(exp_config_data.get("guardrail_id", ""), exp_config_data.get("guardrail_version", 0), exp_config_data.get("aws_region", "us-east-1"))
             
-            
+            kb_data = exp_config_data.get("kb_data")
+            knowledge_base_id = None
+
+            if isinstance(kb_data, str):
+                knowledge_base_id = kb_data
+
+            elif isinstance(kb_data, dict):
+                kb_id_list = kb_data.get("kb_id", [])
+                if isinstance(kb_id_list, list) and kb_id_list:
+                    knowledge_base_id = kb_id_list[0]
             vector_storage = VectorStorageFactory.create_vector_storage(
                 knowledge_base=exp_config_data.get("knowledge_base", False),
                 use_bedrock_kb=exp_config_data.get("bedrock_knowledge_base", False),
@@ -101,7 +119,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 opensearch_username=config.get_opensearch_username() if is_opensearch_required else None,
                 opensearch_password=config.get_opensearch_password() if is_opensearch_required else None,
                 index_id=exp_config_data.get("index_id"),
-                knowledge_base_id=exp_config_data.get("kb_data"),
+                knowledge_base_id=knowledge_base_id,
                 aws_region=exp_config_data.get("aws_region")
             )
 
@@ -129,7 +147,8 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                 config.get_sagemaker_arn_role(default=""),
                 int(exp_config_data.get("n_shot_prompts", 0)),
                 float(exp_config_data.get("temp_retrieval_llm", 0)), 
-                exp_config_data.get("n_shot_prompt_guide_obj")
+                exp_config_data.get("n_shot_prompt_guide_obj"),
+                headers=exp_config_data.get("gateway_headers", {})
             )
             
             if exp_config_data.get("enable_guardrails", False) and exp_config_data.get("enable_response_guardrails", False):
@@ -170,7 +189,7 @@ class RetrieverProcessor(BaseFargateTaskProcessor):
                     batch_items = []
 
             if len(batch_items) > 0:
-                write_batch_to_metrics_db(batch_items, self.config_data, execution_id, experiment_id)
+                write_batch_to_metrics_db(batch_items, self.config_data, execution_id, experiment_id) 
 
             output = {"status": "success", "message": "Retriever completed successfully."}
             self.send_task_success(output)
@@ -312,26 +331,26 @@ def write_batch_metrics_through_api(metrics_list: List[Dict[str, Any]], config_d
         List[Dict[str, Any]]: A list of dictionaries formatted as required by the API.
 
     """
-    required_metadata_keys = (
-        "query_metadata",
-        "answer_metadata",
-        "guardrail_input_assessment",
-        "guardrail_context_assessment",
-        "guardrail_output_assessment",
-    )
-    transformed_payload_list = [
-        {
-            "input": [{"type": "question", "content": item_metrics.get("question", "")}],
-            "expected": [{"type": "answer", "content": item_metrics.get("gt_answer", "")}],
-            "actual": [{"type": "answer", "content": item_metrics.get("generated_answer", "")}],
-            "metadata": [
-                {"type": key, "content": item_metrics[key]}
-                for key in required_metadata_keys
-                if key in item_metrics
-            ],
-        }
-        for item_metrics in metrics_list
-    ]
+    transformed_payload_list = []
+
+    for item_metrics in metrics_list:
+        question = item_metrics.get("question", "")
+        gt_answer = item_metrics.get("gt_answer", "")
+        generated_answer = item_metrics.get("generated_answer", "")
+
+        reference_contexts = item_metrics.get("reference_contexts", [])
+        metadata = [
+            {"type": "context", "content": ctx}
+            for ctx in reference_contexts
+            if isinstance(ctx, str)
+        ]
+
+        transformed_payload_list.append({
+            "input": [{"type": "question", "content": question}],
+            "expected": [{"type": "answer", "content": gt_answer}],
+            "actual": [{"type": "answer", "content": generated_answer}],
+            "metadata": metadata
+        })
     if not project_uid or not experiment_uid:
         logger.error("Missing projectUid or experimentUid in the first metrics item.")
     base_url = config_data.get("console", {}).get("url", "").rstrip("/")
